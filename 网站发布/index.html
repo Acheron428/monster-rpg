@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>打怪升级</title>
+<style>
+  :root{
+    --bg:#0b0814;
+    --panel:rgba(255,255,255,.06);
+    --line:rgba(255,255,255,.12);
+    --gold:#f7c64f;
+    --green:#63e6a4;
+    --red:#ff6b6b;
+    --text:#eee9ff;
+    --muted:#a79ec6;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(900px 500px at 50% -10%, #2a1b52 0%, transparent 60%),
+      radial-gradient(700px 400px at 90% 110%, #16304a 0%, transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+    padding:16px 12px 28px;
+    min-height:100dvh;
+    user-select:none;
+    overflow-x:hidden;
+  }
+  .game{
+    width:100%;
+    max-width:520px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+
+  /* 顶部状态栏 */
+  .hud{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:8px;
+  }
+  .hud-item{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:8px 6px;
+    text-align:center;
+    backdrop-filter:blur(6px);
+  }
+  .hud-item .label{font-size:11px;color:var(--muted);display:block;margin-bottom:2px;}
+  .hud-item b{font-size:17px;color:var(--gold);font-variant-numeric:tabular-nums;}
+  .hud-item.floor b{color:#8fd3ff;}
+
+  /* 战斗舞台 */
+  .stage{
+    display:grid;
+    grid-template-columns:1fr 58px 1fr;
+    align-items:end;
+    gap:4px;
+    background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0));
+    border:1px solid var(--line);
+    border-radius:18px;
+    padding:18px 12px 14px;
+    position:relative;
+    overflow:hidden;
+  }
+  .stage::after{
+    content:"";
+    position:absolute;inset:auto 0 0 0;height:46%;
+    background:radial-gradient(ellipse at 50% 100%, rgba(247,198,79,.12), transparent 70%);
+    pointer-events:none;
+  }
+  .unit{text-align:center;position:relative;z-index:1;}
+  .avatar{
+    font-size:64px;line-height:1;
+    filter:drop-shadow(0 10px 14px rgba(0,0,0,.55));
+    animation:float 3.2s ease-in-out infinite;
+  }
+  .unit.enemy .avatar{animation-delay:-1.4s;}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+  .name{
+    font-size:13px;margin:8px 0 6px;color:var(--muted);
+    display:flex;justify-content:center;align-items:center;gap:4px;
+  }
+  .name .tag{
+    font-size:10px;background:#7a1f2b;color:#ffd7d7;border-radius:6px;
+    padding:1px 6px;letter-spacing:1px;
+  }
+  .bar{
+    height:10px;border-radius:99px;background:rgba(0,0,0,.45);
+    border:1px solid rgba(255,255,255,.14);
+    overflow:hidden;
+  }
+  .bar i{
+    display:block;height:100%;width:100%;
+    border-radius:99px;
+    transition:width .28s ease;
+    background:linear-gradient(90deg,#2fd08a,#63e6a4);
+  }
+  .bar.enemy i{background:linear-gradient(90deg,#ff4d4d,#ff9b4d);}
+  .bar-text{
+    font-size:11px;color:var(--muted);margin-top:4px;
+    font-variant-numeric:tabular-nums;
+  }
+  .vs{
+    font-size:26px;text-align:center;padding-bottom:44px;
+    opacity:.75;animation:pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.4}50%{opacity:.9}}
+
+  .unit.hit{animation:shake .32s;}
+  @keyframes shake{
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-8px)}
+    45%{transform:translateX(6px)}
+    70%{transform:translateX(-4px)}
+  }
+  .enemy.boss .bar i{background:linear-gradient(90deg,#b026ff,#ff4d4d);}
+  .enemy.boss .avatar{filter:drop-shadow(0 0 18px rgba(255,70,70,.7));}
+
+  /* 飘字 */
+  .float-num{
+    position:absolute;left:50%;top:26px;transform:translateX(-50%);
+    font-weight:800;font-size:24px;color:#ffd166;
+    text-shadow:0 2px 10px rgba(0,0,0,.8);
+    pointer-events:none;animation:floatUp .9s ease-out forwards;
+    z-index:3;
+  }
+  .float-num.heal{color:#63e6a4;}
+  @keyframes floatUp{
+    0%{opacity:0;transform:translate(-50%,10px) scale(.8)}
+    25%{opacity:1;transform:translate(-50%,-6px) scale(1.1)}
+    100%{opacity:0;transform:translate(-50%,-52px) scale(1)}
+  }
+
+  /* 战斗日志 */
+  .log{
+    background:rgba(0,0,0,.32);
+    border:1px solid var(--line);
+    border-radius:12px;
+    height:88px;
+    overflow-y:auto;
+    padding:8px 12px;
+    font-size:12.5px;
+    line-height:1.65;
+    color:var(--muted);
+    scrollbar-width:thin;
+  }
+  .log p{margin:0;}
+  .log .good{color:#9af0c4;}
+  .log .bad{color:#ff9b9b;}
+  .log .big{color:#ffd166;font-weight:700;}
+  .log .info{color:#9fd7ff;}
+
+  /* 操作按钮 */
+  .actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+  button{
+    font-family:inherit;color:var(--text);
+    border:1px solid rgba(255,255,255,.16);
+    border-radius:14px;
+    background:linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.05));
+    padding:15px 10px;
+    font-size:16px;font-weight:700;
+    cursor:pointer;
+    transition:transform .12s, filter .2s, opacity .2s;
+    position:relative;
+  }
+  button small{font-size:11px;color:var(--muted);font-weight:400;margin-left:2px;}
+  button:active:not(:disabled){transform:scale(.96);}
+  button:disabled{opacity:.38;cursor:not-allowed;filter:grayscale(.4);}
+  #btnAttack{background:linear-gradient(180deg,#ff9f43,#e46d1f);border-color:#ffbf7a;}
+  #btnHeavy{background:linear-gradient(180deg,#c26bff,#7a35d6);border-color:#d7a3ff;}
+  #btnGuard{background:linear-gradient(180deg,#4aa7ff,#2166c4);border-color:#8cc9ff;}
+  #btnPotion{background:linear-gradient(180deg,#38d39f,#12805f);border-color:#8bf0c9;}
+
+  .next{
+    padding:16px;font-size:18px;
+    background:linear-gradient(180deg,#f7c64f,#d99716);
+    border-color:#ffe39b;color:#2a1a00;
+  }
+  [hidden]{display:none !important;}
+
+  footer{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    font-size:12px;color:var(--muted);
+  }
+  #statsLine{flex:1;line-height:1.5;}
+  .reset{
+    padding:8px 14px;font-size:12px;border-radius:10px;
+    background:rgba(255,255,255,.08);
+  }
+
+  /* 升级提示 */
+  .toast{
+    position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);
+    font-size:34px;font-weight:900;letter-spacing:2px;
+    color:#ffe9a8;
+    text-shadow:0 0 24px rgba(247,198,79,.9),0 4px 18px rgba(0,0,0,.8);
+    pointer-events:none;opacity:0;z-index:20;
+  }
+  .toast.show{animation:toastPop 1.5s ease-out;}
+  @keyframes toastPop{
+    0%{opacity:0;transform:translate(-50%,-50%) scale(.65)}
+    20%{opacity:1;transform:translate(-50%,-50%) scale(1.12)}
+    40%{transform:translate(-50%,-50%) scale(1)}
+    80%{opacity:1}
+    100%{opacity:0;transform:translate(-50%,-70%) scale(1)}
+  }
+</style>
+</head>
+<body>
+<div class="game">
+  <header class="hud">
+    <div class="hud-item"><span class="label">等级</span><b id="lv">1</b></div>
+    <div class="hud-item"><span class="label">金币</span><b id="gold">0</b></div>
+    <div class="hud-item"><span class="label">药水</span><b id="potion">3</b></div>
+    <div class="hud-item floor"><span class="label">当前层数</span><b id="floor">1</b></div>
+  </header>
+
+  <section class="stage">
+    <div class="unit player" id="playerUnit">
+      <div class="avatar">🦸</div>
+      <div class="name">你</div>
+      <div class="bar"><i id="playerHpBar"></i></div>
+      <div class="bar-text" id="playerHpText">100 / 100</div>
+    </div>
+    <div class="vs">⚔️</div>
+    <div class="unit enemy" id="enemyUnit">
+      <div class="avatar" id="enemyEmoji">🐺</div>
+      <div class="name"><span id="enemyName">小狼</span><span class="tag" id="bossTag" hidden>BOSS</span></div>
+      <div class="bar enemy"><i id="enemyHpBar"></i></div>
+      <div class="bar-text" id="enemyHpText">50 / 50</div>
+    </div>
+  </section>
+
+  <div class="log" id="log"></div>
+
+  <section class="actions" id="actions">
+    <button id="btnAttack">⚔️ 攻击</button>
+    <button id="btnHeavy">💥 重击 <small id="heavyCd"></small></button>
+    <button id="btnGuard">🛡️ 防御</button>
+    <button id="btnPotion">🧪 药水 <small id="potionCount">x3</small></button>
+  </section>
+  <button class="next" id="btnNext" hidden>继续挑战 ▶</button>
+
+  <footer>
+    <div id="statsLine"></div>
+    <button class="reset" id="btnBuy">🧪 买药水 30💰</button>
+    <button class="reset" id="btnReset">重新开始</button>
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const SAVE_KEY = 'monster-rpg-save-v1';
+
+  // ---------- 怪物图鉴 ----------
+  const MONSTERS = [
+    {name:'小狼', emoji:'🐺'}, {name:'野猪', emoji:'🐗'}, {name:'毒蜘蛛', emoji:'🕷️'},
+    {name:'蜥蜴人', emoji:'🦎'}, {name:'骷髅兵', emoji:'💀'}, {name:'幽灵', emoji:'👻'},
+    {name:'石头怪', emoji:'🗿'}, {name:'鳄鱼', emoji:'🐊'}, {name:'恶魔小鬼', emoji:'👹'}
+  ];
+  const BOSSES = [
+    {name:'狼王', emoji:'🐺'}, {name:'猪王', emoji:'🐗'}, {name:'蛛后', emoji:'🕷️'},
+    {name:'骨龙', emoji:'🦖'}, {name:'炎魔', emoji:'👹'}, {name:'暗黑骑士', emoji:'🗡️'}
+  ];
+
+  // ---------- 存档 ----------
+  function newPlayer(){
+    return {level:1, exp:0, hp:100, maxHp:100, atk:12, def:3, gold:0, potions:3, floor:1, kills:0};
+  }
+  const expNeed = lv => 12 + lv * 8;
+
+  let S = newPlayer();
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(raw){
+      const d = JSON.parse(raw);
+      if(d && typeof d.level === 'number') S = Object.assign(newPlayer(), d);
+    }
+  }catch(e){}
+
+  function save(){
+    try{ localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }catch(e){}
+  }
+
+  let E = null;          // 当前怪物
+  let busy = false;       // 结算中
+  let heavyCd = 0;
+  let defending = false;
+
+  // ---------- 生成怪物 ----------
+  function makeEnemy(floor){
+    const boss = floor % 5 === 0;
+    const pool = boss ? BOSSES : MONSTERS;
+    const m = pool[(floor - 1) % pool.length];
+    const hp = Math.round(38 + floor * 11 + (boss ? 30 + floor * 6 : 0));
+    return {
+      name: m.name, emoji: m.emoji, boss: boss,
+      hp: hp, maxHp: hp,
+      atk: Math.round(5 + floor * 1.5 + (boss ? 3 : 0)),
+      def: Math.round(floor * 0.5 + (boss ? 2 : 0)),
+      expR: Math.round(6 + floor * 3 + (boss ? 12 : 0)),
+      goldR: Math.round(4 + floor * 2 + (boss ? 10 : 0))
+    };
+  }
+
+  // ---------- 界面 ----------
+  const logBox = $('log');
+  function log(text, cls){
+    const p = document.createElement('p');
+    if(cls) p.className = cls;
+    p.textContent = text;
+    logBox.appendChild(p);
+    while(logBox.children.length > 12) logBox.removeChild(logBox.firstChild);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function pct(a, b){ return Math.max(0, Math.min(100, (a / b) * 100)); }
+
+  function render(){
+    $('lv').textContent = S.level;
+    $('gold').textContent = S.gold;
+    $('potion').textContent = S.potions;
+    $('floor').textContent = S.floor;
+
+    $('playerHpBar').style.width = pct(S.hp, S.maxHp) + '%';
+    $('playerHpText').textContent = Math.max(0, Math.ceil(S.hp)) + ' / ' + S.maxHp;
+
+    if(E){
+      $('enemyEmoji').textContent = E.emoji;
+      $('enemyName').textContent = E.name;
+      $('bossTag').hidden = !E.boss;
+      $('enemyUnit').classList.toggle('boss', E.boss);
+      $('enemyHpBar').style.width = pct(E.hp, E.maxHp) + '%';
+      $('enemyHpText').textContent = Math.max(0, Math.ceil(E.hp)) + ' / ' + E.maxHp;
+    }
+
+    $('statsLine').textContent =
+      '攻击 ' + S.atk + ' · 防御 ' + S.def +
+      ' · 经验 ' + S.exp + '/' + expNeed(S.level) +
+      ' · 已击败 ' + S.kills;
+
+    $('potionCount').textContent = 'x' + S.potions;
+    $('heavyCd').textContent = heavyCd > 0 ? '冷却' + heavyCd : '';
+    updateButtons();
+  }
+
+  function updateButtons(){
+    const dead = !E || E.hp <= 0;
+    const lock = busy || dead;
+    $('btnAttack').disabled = lock;
+    $('btnGuard').disabled  = lock;
+    $('btnPotion').disabled = lock || S.potions <= 0 || S.hp >= S.maxHp;
+    $('btnHeavy').disabled  = lock || heavyCd > 0;
+    $('btnNext').hidden = !(dead && E);
+  }
+
+  function hitEffect(unitId, dmg, heal){
+    const unit = $(unitId);
+    unit.classList.remove('hit');
+    void unit.offsetWidth;
+    unit.classList.add('hit');
+    setTimeout(() => unit.classList.remove('hit'), 350);
+
+    const n = document.createElement('div');
+    n.className = 'float-num' + (heal ? ' heal' : '');
+    n.textContent = (heal ? '+' : '-') + dmg;
+    unit.appendChild(n);
+    setTimeout(() => n.remove(), 950);
+  }
+
+  function toast(text){
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.remove('show');
+    void t.offsetWidth;
+    t.classList.add('show');
+  }
+
+  // ---------- 战斗 ----------
+  function playerTurn(kind){
+    if(busy || !E || E.hp <= 0) return;
+    if(kind === 'potion' && (S.potions <= 0 || S.hp >= S.maxHp)) return;
+    busy = true;
+    render();
+
+    let extraMul = 0;
+    let skipEnemy = false;
+
+    if(kind === 'attack'){
+      const crit = Math.random() < 0.15;
+      let dmg = Math.max(1, Math.round(S.atk - E.def * 0.5 + Math.random() * 3));
+      if(crit) dmg = Math.round(dmg * 2);
+      E.hp = Math.max(0, E.hp - dmg);
+      hitEffect('enemyUnit', dmg);
+      log(crit ? '暴击！你对' + E.name + '造成 ' + dmg + ' 点伤害' : '你攻击' + E.name + '，造成 ' + dmg + ' 点伤害', crit ? 'big' : 'good');
+      if(heavyCd > 0) heavyCd--;
+    }
+    else if(kind === 'heavy'){
+      let dmg = Math.max(1, Math.round(S.atk * 2.2 - E.def + Math.random() * 4));
+      E.hp = Math.max(0, E.hp - dmg);
+      hitEffect('enemyUnit', dmg);
+      log('你使出重击，对' + E.name + '造成 ' + dmg + ' 点伤害！', 'big');
+      heavyCd = 2;
+      extraMul = 0.3;              // 下一回合怪物反击更痛
+    }
+    else if(kind === 'guard'){
+      const heal = Math.max(1, Math.round(S.maxHp * 0.08));
+      S.hp = Math.min(S.maxHp, S.hp + heal);
+      defending = true;
+      hitEffect('playerUnit', heal, true);
+      log('你举盾防御，恢复 ' + heal + ' 点生命，本回合受到伤害减半', 'info');
+      if(heavyCd > 0) heavyCd--;
+    }
+    else if(kind === 'potion'){
+      if(S.potions <= 0 || S.hp >= S.maxHp) return;
+      S.potions--;
+      const heal = Math.max(1, Math.round(S.maxHp * 0.45));
+      const real = Math.min(heal, S.maxHp - S.hp);
+      S.hp = Math.min(S.maxHp, S.hp + heal);
+      hitEffect('playerUnit', real, true);
+      log('你喝下药水，恢复 ' + real + ' 点生命', 'info');
+      if(heavyCd > 0) heavyCd--;
+    }
+
+    render();
+
+    if(E.hp <= 0){ victory(); return; }
+
+    setTimeout(() => enemyTurn(extraMul), 620);
+  }
+
+  function enemyTurn(extraMul){
+    let dmg = Math.max(1, Math.round(E.atk - S.def * 0.5 + Math.random() * 3));
+    if(extraMul) dmg = Math.round(dmg * (1 + extraMul));
+    if(defending) dmg = Math.max(1, Math.round(dmg * 0.5));
+    defending = false;
+
+    S.hp = Math.max(0, S.hp - dmg);
+    hitEffect('playerUnit', dmg);
+    log(E.name + '反击，你受到 ' + dmg + ' 点伤害', 'bad');
+    render();
+
+    if(S.hp <= 0){ defeat(); return; }
+
+    busy = false;
+    render();
+    save();
+  }
+
+  function victory(){
+    const exp = E.expR, gold = E.goldR;
+    S.kills++;
+    log('你击败了' + E.name + '！获得 ' + exp + ' 经验、' + gold + ' 金币', 'big');
+    S.gold += gold;
+    gainExp(exp);
+    S.floor++;
+    save();
+    render();
+  }
+
+  function gainExp(n){
+    S.exp += n;
+    let ups = 0;
+    while(S.exp >= expNeed(S.level)){
+      S.exp -= expNeed(S.level);
+      S.level++;
+      S.maxHp += 25;
+      S.hp = S.maxHp;
+      S.atk += 4;
+      S.def += 1;
+      S.potions = Math.min(9, S.potions + 1);
+      ups++;
+    }
+    if(ups){
+      toast('升到 ' + S.level + ' 级！');
+      log('★ 升级！生命、攻击、防御全面提升，生命已回满，药水 +' + ups, 'big');
+    }
+  }
+
+  function defeat(){
+    busy = false;
+    S.hp = S.maxHp;
+    log('你被' + E.name + '击倒了……原地休息后体力已恢复', 'bad');
+    E = makeEnemy(S.floor);
+    render();
+    save();
+  }
+
+  function nextEnemy(){
+    if(!E || E.hp > 0) return;
+    E = makeEnemy(S.floor);
+    heavyCd = 0;
+    defending = false;
+    busy = false;
+    log('第 ' + S.floor + ' 层：' + (E.boss ? '★ BOSS ' : '') + E.name + '出现了！', E.boss ? 'big' : 'info');
+    render();
+    save();
+  }
+
+  // ---------- 事件 ----------
+  $('btnAttack').addEventListener('click', () => playerTurn('attack'));
+  $('btnHeavy').addEventListener('click', () => playerTurn('heavy'));
+  $('btnGuard').addEventListener('click', () => playerTurn('guard'));
+  $('btnPotion').addEventListener('click', () => playerTurn('potion'));
+  $('btnNext').addEventListener('click', nextEnemy);
+
+  $('btnBuy').addEventListener('click', () => {
+    const PRICE = 30;
+    if(S.potions >= 9){ log('药水最多带 9 瓶', 'info'); return; }
+    if(S.gold < PRICE){ log('金币不够，还差 ' + (PRICE - S.gold) + ' 金币', 'bad'); return; }
+    S.gold -= PRICE;
+    S.potions++;
+    log('你花 ' + PRICE + ' 金币买了一瓶药水', 'info');
+    save();
+    render();
+  });
+
+  $('btnReset').addEventListener('click', () => {
+    if(!confirm('确定重新开始吗？当前进度会被清空。')) return;
+    S = newPlayer();
+    heavyCd = 0;
+    defending = false;
+    busy = false;
+    E = makeEnemy(1);
+    logBox.innerHTML = '';
+    log('新的冒险开始了！第 1 层：' + E.name + '出现了！', 'info');
+    save();
+    render();
+  });
+
+  // ---------- 启动 ----------
+  E = makeEnemy(S.floor);
+  if(S.hp <= 0) S.hp = S.maxHp;
+  log('欢迎来到打怪升级！第 ' + S.floor + ' 层：' + E.name + (E.boss ? '（BOSS）' : '') + ' 出现了！', E.boss ? 'big' : 'info');
+  log('每 5 层会遇到 BOSS，击败获得大量经验和金币。', 'info');
+  render();
+})();
+</script>
+</body>
+</html>
